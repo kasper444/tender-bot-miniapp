@@ -12,7 +12,7 @@ declare global {
 }
 
 const cfg = window.AUCTION_CONFIG ?? {};
-export const API_BASE = (cfg.apiBase ?? "").replace(/\/$/, "");
+export let API_BASE = (cfg.apiBase ?? "").replace(/\/$/, "");
 const DEMO_FALLBACK = cfg.demoFallback !== false;
 
 let token: string | null = null;
@@ -26,6 +26,28 @@ export const isOffline = () => offline;
 export function forceDemo() {
   demo = true;
   offline = true;
+}
+
+/**
+ * Актуальный адрес API. Временный контур живёт на туннеле, адрес которого меняется при
+ * перезапуске, поэтому рядом с приложением (тот же origin, без CORS) лежит `api.json`,
+ * который обновляет сторож туннеля. Если он новее конфигурации — берём адрес оттуда.
+ */
+export async function resolveApiBase(): Promise<string> {
+  try {
+    const res = await fetch(`./api.json?t=${Date.now()}`, { cache: "no-store" });
+    if (res.ok) {
+      const body = (await res.json()) as { apiBase?: string };
+      const fromJson = (body.apiBase ?? "").replace(/\/$/, "");
+      if (fromJson && fromJson !== API_BASE) {
+        console.info(`[auction] адрес API обновлён по api.json: ${fromJson}`);
+        API_BASE = fromJson;
+      }
+    }
+  } catch {
+    /* необязательный шаг: при недоступности используем адрес из config.js */
+  }
+  return API_BASE;
 }
 
 export class ApiError extends Error {
