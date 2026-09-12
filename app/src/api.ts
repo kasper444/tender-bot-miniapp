@@ -108,6 +108,7 @@ async function withDemo<T>(run: () => Promise<T>, fallback: () => T): Promise<T>
 
 // ------------------------------------------------------------------ сессия
 export async function startSession(initData: string): Promise<Session> {
+  await resolveApiBase();                    // актуализируем адрес API (см. api.json)
   const w = window.WebApp;
   const launch = {
     platform: w?.platform ?? null,
