@@ -18,8 +18,14 @@ if (!bundle) throw new Error("в docs/assets нет собранного бан�
 const mode = process.argv[2] ?? "list";
 const startParam = mode === "tender" ? "tender_BK-2026-000001" : mode === "create" ? "create" : null;
 
+// Живой прогон: берём реальный docs/config.js и настоящий initData из файла,
+// чтобы проверить приложение против опубликованного API, а не против демо-данных.
+const liveConfig = process.env.USE_DOCS_CONFIG === "1";
+const initDataFile = process.env.INITDATA_FILE;
+const realInitData = initDataFile ? readFileSync(initDataFile, "utf8").trim() : "";
+
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-  url: "https://kasper444.github.io/tender-bot-miniapp/?demo=1",
+  url: liveConfig ? "https://kasper444.github.io/tender-bot-miniapp/" : "https://kasper444.github.io/tender-bot-miniapp/?demo=1",
   pretendToBeVisual: true,
 });
 const { window } = dom;
@@ -36,12 +42,20 @@ globalThis.URLSearchParams = window.URLSearchParams ?? URLSearchParams;
 globalThis.getComputedStyle = window.getComputedStyle.bind(window);
 globalThis.requestAnimationFrame = (cb) => setTimeout(() => cb(Date.now()), 16);
 globalThis.cancelAnimationFrame = (id) => clearTimeout(id);
-window.AUCTION_CONFIG = { apiBase: "http://127.0.0.1:8010", demoFallback: true };
+if (liveConfig) {
+  // читаем реальную конфигурацию сборки (без eval): адрес API и флаг демо-фолбэка
+  const src = readFileSync(join(docs, "config.js"), "utf8");
+  const m = src.match(/apiBase:\s*"([^"]*)"/);
+  window.AUCTION_CONFIG = { apiBase: m ? m[1] : "", demoFallback: /demoFallback:\s*true/.test(src) };
+  console.log("конфигурация сборки: apiBase =", window.AUCTION_CONFIG.apiBase);
+} else {
+  window.AUCTION_CONFIG = { apiBase: "http://127.0.0.1:8010", demoFallback: true };
+}
 // Имитируем запуск из MAX: кнопка «Участвовать» передаёт start_param
-if (startParam) {
+if (startParam || realInitData) {
   window.WebApp = {
-    initData: "",
-    initDataUnsafe: { start_param: startParam, user: { user_id: 1, first_name: "Демо-организатор" } },
+    initData: realInitData,
+    initDataUnsafe: { start_param: startParam, user: { id: 169643859, first_name: "Дмитрий" } },
     platform: "test",
   };
 }
@@ -54,7 +68,16 @@ process.on("unhandledRejection", (e) => errors.push(`unhandled: ${String(e)}`));
 const tmp = join(docs, "assets", "__smoke_bundle.mjs");
 writeFileSync(tmp, readFileSync(join(docs, "assets", bundle), "utf8"));
 await import(pathToFileURL(tmp).href);
-await new Promise((r) => setTimeout(r, 1500));
+
+// Ждём, пока приложение выйдет из состояния загрузки (запрос к API может идти по сети)
+const rootEl = window.document.getElementById("root");
+const deadline = Date.now() + 25_000;
+while (Date.now() < deadline) {
+  const txt = (rootEl?.textContent ?? "").trim();
+  if (txt && !txt.includes("Проверяем данные запуска")) break;
+  await new Promise((r) => setTimeout(r, 400));
+}
+await new Promise((r) => setTimeout(r, 400));
 
 const root = window.document.getElementById("root");
 const text = (root?.textContent ?? "").replace(/\s+/g, " ").trim();
