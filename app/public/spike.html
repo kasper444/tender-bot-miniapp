@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tender_Bot — мини-приложение (спайк)</title>
+<!-- MAX Bridge: обязательный CDN-скрипт. window.WebApp доступен сразу, init() не нужен -->
+<script src="https://st.max.ru/js/max-web-app.js"></script>
+<style>
+  :root{
+    --bg:#111318; --card:#1a1d24; --line:#2a2f3a; --fg:#f2f4f8;
+    --muted:#9aa3b2; --accent:#7b5cff; --ok:#2fbf71; --warn:#e0a10b; --err:#e5484d;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif}
+  .wrap{max-width:640px;margin:0 auto;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0 0 10px}
+  .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}
+  .row:last-child{border-bottom:0}
+  .row span:first-child{color:var(--muted);flex:0 0 auto}
+  .row span:last-child{text-align:right;word-break:break-all;font-variant-numeric:tabular-nums}
+  .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:13px;font-weight:600}
+  .b-ok{background:rgba(47,191,113,.16);color:var(--ok)}
+  .b-warn{background:rgba(224,161,11,.16);color:var(--warn)}
+  .b-err{background:rgba(229,72,77,.16);color:var(--err)}
+  button{width:100%;min-height:48px;border:0;border-radius:12px;background:var(--accent);color:#fff;
+    font-size:17px;font-weight:600;margin-top:10px;cursor:pointer}
+  button.ghost{background:transparent;border:1px solid var(--line);color:var(--fg)}
+  button:disabled{opacity:.45}
+  pre{white-space:pre-wrap;word-break:break-all;background:#0c0e12;border:1px solid var(--line);
+    border-radius:10px;padding:10px;font-size:12px;color:#c9d1d9;max-height:220px;overflow:auto}
+  .big{font-size:28px;font-weight:700;font-variant-numeric:tabular-nums}
+  .hint{color:var(--muted);font-size:13px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tender_Bot — мини-приложение</h1>
+  <div class="sub">Спайк MAX Mini Apps: запуск, launch-параметры, Bridge, диплинк.</div>
+
+  <div class="card">
+    <h2>Состояние запуска</h2>
+    <div class="row"><span>Место запуска</span><span id="env">—</span></div>
+    <div class="row"><span>Платформа</span><span id="platform">—</span></div>
+    <div class="row"><span>Версия Bridge</span><span id="version">—</span></div>
+    <div class="row"><span>start_param</span><span id="startparam" class="big">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Пользователь и чат</h2>
+    <div class="row"><span>user_id</span><span id="uid">—</span></div>
+    <div class="row"><span>Имя</span><span id="uname">—</span></div>
+    <div class="row"><span>username</span><span id="unick">—</span></div>
+    <div class="row"><span>chat_id</span><span id="cid">—</span></div>
+    <div class="row"><span>Тип чата</span><span id="ctype">—</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Подпись launch-параметров (BR-01)</h2>
+    <div class="row"><span>initData</span><span id="idlen">—</span></div>
+    <div class="row"><span>hash присутствует</span><span id="hashflag">—</span></div>
+    <div class="hint">Эта же строка проверяется на бэкенде:
+      <code>HMAC_SHA256("WebAppData", bot_token)</code> → <code>HMAC_SHA256(secret, параметры через \n)</code> и сверка с <code>hash</code>.
+      На клиенте ничего не доверяем — данные с клиента не считаются доказательством.</div>
+    <button class="ghost" id="copy">Скопировать initData</button>
+    <pre id="raw">—</pre>
+  </div>
+
+  <div class="card">
+    <h2>Bridge (проверка вызовов)</h2>
+    <div class="row"><span>HapticFeedback</span><span id="haptic">—</span></div>
+    <div class="row"><span>BackButton</span><span id="back">—</span></div>
+    <div class="row"><span>SecureStorage</span><span id="secstore">—</span></div>
+    <button id="test">Нажать (haptic + запись в SecureStorage)</button>
+    <div class="hint">Вне MAX транспорт недоступен: вызовы становятся no-op с предупреждением в консоли — это не ошибка.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var W = window.WebApp;
+  var $ = function (id) { return document.getElementById(id); };
+  var inMax = !!(W && W.initDataUnsafe && W.initDataUnsafe.user);
+
+  $('env').innerHTML = inMax
+    ? '<span class="badge b-ok">внутри MAX</span>'
+    : '<span class="badge b-warn">браузер (мок)</span>';
+  $('platform').textContent = (W && W.platform) || '—';
+  $('version').textContent = (W && W.version) || '—';
+
+  var u = (W && W.initDataUnsafe) || {};
+  var user = u.user || {};
+  var chat = u.chat || {};
+  $('startparam').textContent = u.start_param || '(пусто)';
+  $('uid').textContent = user.id || '—';
+  $('uname').textContent = [user.first_name, user.last_name].filter(Boolean).join(' ') || '—';
+  $('unick').textContent = user.username ? '@' + user.username : '—';
+  $('cid').textContent = chat.id || '—';
+  $('ctype').textContent = chat.type || '—';
+
+  var initData = (W && W.initData) || '';
+  $('idlen').textContent = initData ? initData.length + ' символов' : 'пусто (вне MAX)';
+  $('hashflag').innerHTML = /(^|&)hash=/.test(initData)
+    ? '<span class="badge b-ok">есть</span>'
+    : '<span class="badge b-err">нет</span>';
+  $('raw').textContent = initData || '—';
+
+  $('haptic').innerHTML = W && W.HapticFeedback ? '<span class="badge b-ok">доступен</span>'
+                                                : '<span class="badge b-err">нет</span>';
+  $('back').innerHTML = W && W.BackButton ? '<span class="badge b-ok">доступен</span>'
+                                          : '<span class="badge b-err">нет</span>';
+  $('secstore').innerHTML = W && W.SecureStorage ? '<span class="badge b-ok">доступен</span>'
+                                                 : '<span class="badge b-err">нет</span>';
+
+  $('copy').addEventListener('click', function () {
+    if (!initData) { return; }
+    (navigator.clipboard ? navigator.clipboard.writeText(initData) : Promise.reject())
+      .catch(function () {});
+    if (W && W.HapticFeedback) { try { W.HapticFeedback.notificationOccurred('success'); } catch (e) {} }
+  });
+
+  $('test').addEventListener('click', function () {
+    if (W && W.HapticFeedback) { try { W.HapticFeedback.impactOccurred('medium'); } catch (e) {} }
+    if (W && W.SecureStorage) {
+      W.SecureStorage.setItem('spike_ping', String(Date.now()))
+        .then(function () { $('test').textContent = 'Записано в SecureStorage ✓'; })
+        .catch(function () { $('test').textContent = 'SecureStorage недоступен'; });
+    } else {
+      $('test').textContent = 'Bridge недоступен вне MAX';
+    }
+  });
+
+  if (W && W.BackButton && W.BackButton.hide) { try { W.BackButton.hide(); } catch (e) {} }
+})();
+</script>
+</body>
+</html>
